@@ -1,0 +1,17 @@
+/* The preview page shows the sketch's canvas and nothing else. */
+html, body {
+  margin: 0;
+  background: #fff;
+  overflow: hidden;
+}
+/* The runner sets the canvas's size to the sketch's size. If the frame is narrower, the canvas shrinks to fit,
+   keeping its shape; the runner still maps the mouse to the sketch's own pixels. */
+canvas {
+  display: block;
+  max-width: 100%;
+  height: auto !important;
+}
+canvas:focus-visible {
+  outline: 2px solid #00897b;
+  outline-offset: -2px;
+}

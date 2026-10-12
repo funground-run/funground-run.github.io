@@ -70,6 +70,7 @@ async function run(message) {
     return;
   }
   starting = true;
+  await runner.stop();                          // a run in progress ends first: its end is not the new run's
   finishedReason = null;
   const result = await runner.run(message.source, { filename: message.filename, files: message.files ?? {} });
   starting = false;
@@ -86,6 +87,9 @@ function stop() {
   waiting = null;
   runner?.stop();
 }
+
+// The editor gives this frame the focus when the learner presses Run, so the keys go to the sketch, not back to Run.
+window.addEventListener("focus", () => canvas.focus());
 
 // ---- messages from the editor: only from its origin, and only from the page that embeds this one
 

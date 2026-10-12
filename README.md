@@ -27,7 +27,7 @@ The editor and this page talk only by `postMessage`.
 | preview to editor | `{type: "output", text, stream}` | `print()` output (`stream` is `"stdout"`) or other messages (`"stderr"`) |
 | preview to editor | `{type: "error", text}` | A Python traceback (it is not sent again as `output`) |
 | preview to editor | `{type: "started", width, height}` | `setup()` has run: the sketch's size in pixels, so the editor can size the iframe |
-| preview to editor | `{type: "finished", reason}` | `"ended"`, `"stopped"` or `"error"`. Sent after `started` |
+| preview to editor | `{type: "finished", reason}` | `"ended"`, `"stopped"` or `"error"`. Sent after `started`. A run that a new `run` replaces sends none: the next `started` is the new run |
 
 The same table is in the README of `funground-hq/funground-hq.github.io`.
 

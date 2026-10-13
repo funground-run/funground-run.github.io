@@ -104,7 +104,9 @@ window.addEventListener("message", (event) => {
 
 try {
   const { createRunner } = await import(new URL("runner.js", runnerBase).href);
-  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish });
+  // A sketch that did not stop in time costs a new Python: the editor is told, so a slow next run is not a mystery.
+  const onRestart = () => send({ type: "restarting" });
+  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart });
   send({ type: "ready", info: runner.info });
   if (waiting) {
     const next = waiting;

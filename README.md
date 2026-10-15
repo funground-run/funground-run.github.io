@@ -9,7 +9,8 @@ them from `main`; there is nothing to build.
 |---|---|
 | `index.html` | A line saying what this site is, with a link to the editor |
 | `preview.html`, `preview.css` | The page the editor puts in its iframe: one canvas, and the guides' box over it (a grid and the mouse's x and y, S-202) |
-| `preview.js` | Loads the browser runner from the website, runs the sketches the editor sends, reports back |
+| `preview.js` | Loads the browser runner from the website, runs the sketches the editor sends, reports back, and registers `sw.js` |
+| `sw.js` | The service worker that keeps funground's runtime in the browser, so a repeat visit downloads nothing and Play runs offline (S-210) |
 
 `preview.js` loads the runner (`runner.js`, the worker, the funground wheel) from
 `https://funground-hq.github.io/play/runner/`, so the editor and the preview always run the same funground. Pyodide
@@ -32,6 +33,9 @@ The editor and this page talk only by `postMessage`.
 | preview to editor | `{type: "finished", reason}` | `"ended"`, `"stopped"` or `"error"`. Sent after `started`. A run that a new `run` replaces sends none: the next `started` is the new run |
 | preview to editor | `{type: "file", name, bytes, mime}` | The sketch saved a file (`f.save("poster.png")`; also PDF, SVG and GIF; an MP4 needs ffmpeg, which a browser does not have, so funground's own error says so). `name` is the path in the sketch's folder, `bytes` an `ArrayBuffer` with the whole file (transferred), `mime` its type. A file saved again is sent again. A reply to `snapshot` has `snapshot: true` as well. The preview never starts a download itself: the editor decides (S-212). An older editor ignores this message |
 | preview to editor | `{type: "restarting"}` | The last sketch did not stop within a second, so a new Python is loading; the next run waits for it (seconds). An editor that does not know this message can ignore it |
+| editor to preview | `{type: "forget"}` | Remove what the preview keeps in this browser: delete the caches whose names start with `funground-` and unregister the service worker (S-210). The sketches are not touched (this site stores none). Answered with `forgotten`. The next visit downloads the runtime again. A preview that does not know this message ignores it |
+| preview to editor | `{type: "forgotten"}` | The reply to `forget`: the caches are gone and the service worker is unregistered |
+| preview to editor | `{type: "update-ready"}` | A new funground finished downloading in the background (S-210). It starts the next time Python loads (the next visit, or after a restart), not in the run in progress. The editor can say so: "A new funground is ready: it starts the next time you open Play". An editor that does not know this message can ignore it |
 
 The same table is in the README of `funground-hq/funground-hq.github.io`.
 
@@ -48,7 +52,38 @@ box is made again when a run starts and when the canvas changes size. The label 
 - The editor shows this page with `sandbox="allow-scripts allow-same-origin"` and `allow="autoplay; microphone"`.
   `allow-same-origin` is needed: without it the page has no origin, and Chrome does not start the runner's worker
   from a `blob:` URL there. The page is still on this site's origin, not the website's.
-- Nothing is stored here: no cookies, no local storage.
+- Nothing is stored here: no cookies, no local storage, no learner data. The only thing kept is a copy of the runtime (see the next section).
+
+## The runtime stays on the device (S-210)
+
+`preview.js` registers `sw.js` before it starts the runner. It must be this page: the runner's worker is started here, and a
+worker started by a page that `sw.js` controls is controlled too (also when it starts from a `blob:` URL, as the runner's does), so
+`sw.js` sees what the worker fetches. The website cannot do this: a service worker only sees its own origin's pages. The cache is
+kept per top-level site by the browser, so it belongs to the editor that embeds this page.
+
+| What | How it is kept |
+|---|---|
+| The files `runtime/manifest.json` lists (wheels, fonts) | Cache `funground-runtime-<hash>`, where the hash is the first 16 characters of the SHA-256 of the manifest's bytes. Cache-first. The manifest itself is network-first (the saved copy only offline). Nothing is overwritten: a new manifest gets a new cache |
+| Pyodide (jsDelivr) and the PyPI wheels | Cache `funground-vendor`, cache-first: their addresses hold the version. PyPI's list of files (`pypi.org/pypi/<name>/json`) is network-first |
+| This page, its script and style, the runner's scripts | Cache `funground-shell`, network-first, so a change is seen at once and the saved copy is used offline |
+
+**An update.** When the manifest's hash is new, this run keeps the old version. `sw.js` downloads the new files in the background into
+a new cache: a file whose SHA-256 is in the old cache is copied, not downloaded, and a font nobody used is left for when it is needed. The
+manifest goes in last: that marks the cache complete. Then every other `funground-runtime-*` cache is deleted and the editor gets
+`update-ready`. The next worker that starts (the next visit, or after a restart) asks for the manifest, gets the new one and uses the new cache.
+A cache without a manifest is an update that never finished, and is deleted when `sw.js` starts.
+
+**Fonts.** The runner reads a font lazily: one HEAD for its length, then ranges. `sw.js` answers the HEAD from the manifest (the length, and
+`Accept-Ranges: bytes`) with no network, and answers ranges from the saved bytes. It keeps what `fetch` returns, which is already decoded,
+and checks its length against the manifest, so a host that compresses a font cannot give Python a font of the wrong length.
+
+**Offline.** After one visit: the preview, the runner, Python, funground and the fonts a sketch used all load and run with no network. Not
+available offline: the editor page itself (it comes from the website and is kept only by the browser's own cache), fonts no sketch has used yet,
+`load_package` of anything new, and `ON_DEMAND` packages (pygame-ce) not yet used. If the browser cannot run service workers, or
+registering fails or takes more than 8 seconds, the runner loads as it did before.
+
+**Remove it.** `{type: "forget"}` makes `sw.js` step aside, deletes every cache starting with `funground-` and unregisters it. The next visit
+registers it again.
 
 ## Testing on your computer
 

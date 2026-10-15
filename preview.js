@@ -51,6 +51,7 @@ let runner = null;       // null until Python has loaded
 let starting = false;    // a run is between "asked for" and "setup() has run"
 let waiting = null;      // the run asked for while one was starting or Python was loading: only the latest is kept
 let finishedReason = null;   // how the run ended while it was still starting; sent after "started"
+let sketchName = "picture";  // the last run's file name without ".py": the snapshot is called "<it>-frame.png"
 
 function onFinish(reason) {
   if (starting) finishedReason = reason;        // "started" comes first, so the editor sees them in order
@@ -70,6 +71,7 @@ async function run(message) {
     return;
   }
   starting = true;
+  sketchName = message.filename.replace(/\.py$/, "") || "picture";
   await runner.stop();                          // a run in progress ends first: its end is not the new run's
   finishedReason = null;
   const result = await runner.run(message.source, { filename: message.filename, files: message.files ?? {} });
@@ -90,6 +92,28 @@ async function run(message) {
 function stop() {
   waiting = null;
   runner?.stop();
+}
+
+// ---- files the sketch saves (S-212), and the snapshot of the canvas
+//
+// The runner tells us about each file the sketch writes (f.save("poster.png")). The editor gets it as a message, with the
+// bytes transferred, not copied. The editor decides what to do with it: this page never starts a download.
+
+function onFile({ name, bytes, type }) {
+  // Copy only if the bytes are a view on part of a larger buffer, so that transferring sends just this file.
+  const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+  const buffer = whole ? bytes.buffer : bytes.slice().buffer;
+  window.parent.postMessage({ type: "file", name, bytes: buffer, mime: type }, editorOrigin, [buffer]);
+}
+
+// "Save picture": the canvas as it is now, as a PNG, sent as a file named after the sketch.
+function snapshot() {
+  canvas.toBlob(async (blob) => {
+    if (!blob) return;
+    const buffer = await blob.arrayBuffer();
+    window.parent.postMessage({ type: "file", name: `${sketchName}-frame.png`, bytes: buffer, mime: "image/png", snapshot: true },
+      editorOrigin, [buffer]);
+  }, "image/png");
 }
 
 // ---- the guides (S-202): a grid every 50 pixels with the numbers on the top and left edges, and the mouse's x and y
@@ -197,6 +221,7 @@ window.addEventListener("message", (event) => {
   if (message?.type === "run" && isRun(message)) run(message);
   else if (message?.type === "stop") stop();
   else if (message?.type === "guides") showGuides(message);
+  else if (message?.type === "snapshot") snapshot();
 });
 
 // ---- start: load the runner from the website, then say so
@@ -205,7 +230,7 @@ try {
   const { createRunner } = await import(new URL("runner.js", runnerBase).href);
   // A sketch that did not stop in time costs a new Python: the editor is told, so a slow next run is not a mystery.
   const onRestart = () => send({ type: "restarting" });
-  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart });
+  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile });
   send({ type: "ready", info: runner.info });
   if (waiting) {
     const next = waiting;

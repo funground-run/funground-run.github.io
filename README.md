@@ -24,11 +24,13 @@ The editor and this page talk only by `postMessage`.
 | editor to preview | `{type: "run", source, filename, files}` | Run this sketch. `files` maps a path to a `Uint8Array` (`{"data/photo.png": bytes}`). A run that arrives while one is starting replaces it |
 | editor to preview | `{type: "stop"}` | End the sketch now |
 | editor to preview | `{type: "guides", coords, grid}` | Show (`true`) or hide (`false`) the guides over the canvas: `coords` is a label by the pointer with its x and y in the sketch's own pixels, `grid` is lines every 50 pixels with the numbers on the top and left edges (S-202). Sent when the Guides button changes, when the preview is ready, and after each `started`. The overlay takes no mouse. A preview that does not know this message ignores it; an editor that never sends it leaves the page as it was |
+| editor to preview | `{type: "snapshot"}` | Save the canvas as it is now as a PNG (`canvas.toBlob`) and send it back as a `file` named `<sketch name>-frame.png` (the last run's file name without `.py`; `picture.png` if the name is empty), with `snapshot: true` (S-212). A preview that does not know this message ignores it |
 | preview to editor | `{type: "ready", info}` | Python has loaded; `info` is the runner's load report |
 | preview to editor | `{type: "output", text, stream}` | `print()` output (`stream` is `"stdout"`) or other messages (`"stderr"`) |
 | preview to editor | `{type: "error", text}` | A Python traceback (it is not sent again as `output`) |
 | preview to editor | `{type: "started", width, height}` | `setup()` has run: the sketch's size in pixels, so the editor can size the iframe |
 | preview to editor | `{type: "finished", reason}` | `"ended"`, `"stopped"` or `"error"`. Sent after `started`. A run that a new `run` replaces sends none: the next `started` is the new run |
+| preview to editor | `{type: "file", name, bytes, mime}` | The sketch saved a file (`f.save("poster.png")`; also PDF, SVG and GIF; an MP4 needs ffmpeg, which a browser does not have, so funground's own error says so). `name` is the path in the sketch's folder, `bytes` an `ArrayBuffer` with the whole file (transferred), `mime` its type. A file saved again is sent again. A reply to `snapshot` has `snapshot: true` as well. The preview never starts a download itself: the editor decides (S-212). An older editor ignores this message |
 | preview to editor | `{type: "restarting"}` | The last sketch did not stop within a second, so a new Python is loading; the next run waits for it (seconds). An editor that does not know this message can ignore it |
 
 The same table is in the README of `funground-hq/funground-hq.github.io`.

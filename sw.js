@@ -26,18 +26,8 @@ let building = null;          // the hash of the update being downloaded, if any
 // The page itself is kept at once, so even the first visit works offline afterwards (it was loaded before this worker ran).
 const PAGE_FILES = ["preview.html", "preview.js", "preview.css"];
 
-// One at a time, and a failure only costs that file: the page files are a convenience for offline use, and must never
-// stop the worker from installing. (Cache.addAll, which is all or nothing, failed on GitHub Pages with "Entry already
-// exists", so the worker never installed; 15 Oct.)
 self.addEventListener("install", (event) => event.waitUntil((async () => {
-  const shell = await caches.open(SHELL);
-  for (const name of PAGE_FILES) {
-    const url = new URL(name, self.location).href;
-    try {
-      const response = await fetch(url, { cache: "no-cache" });
-      if (response.ok) await shell.put(url, response);
-    } catch { /* kept on the next visit, by networkFirst */ }
-  }
+  await (await caches.open(SHELL)).addAll(PAGE_FILES.map((name) => new URL(name, self.location).href));
   await self.skipWaiting();
 })()));
 

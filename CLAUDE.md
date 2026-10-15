@@ -19,5 +19,5 @@ anything belonging to the website. Part of funground 0.2 (epic E-31, story S-151
 ## Rules
 
 - The runner page accepts sketches only by `postMessage` from the editor's origin and answers only to it.
-- Nothing is stored here: no cookies, no local storage, no analytics.
+- Nothing is stored here: no cookies, no local storage, no analytics. The one exception is the service worker's cache of the runtime (S-210, `sw.js`): files only, no learner data, removed by the `forget` message.
 - Work on a branch; `main` changes by pull request (it deploys).

@@ -3,7 +3,8 @@
 // The editor (funground-hq.github.io/play/) shows this page in a sandboxed iframe and sends it sketches by
 // postMessage. This page is on its own origin, so a sketch from a shared link can reach nothing that belongs to
 // the website. It loads the browser runner from the website, so the editor and the preview run the same funground.
-// The messages are in README.md. Nothing is stored here: no cookies, no local storage.
+// The messages are in README.md. Nothing is stored here: no cookies, no local storage. The service worker (sw.js, S-210)
+// keeps funground's runtime in the browser's cache so a repeat visit downloads nothing; "forget" removes it.
 
 // ---- where the editor and the runner are
 
@@ -222,11 +223,62 @@ window.addEventListener("message", (event) => {
   else if (message?.type === "stop") stop();
   else if (message?.type === "guides") showGuides(message);
   else if (message?.type === "snapshot") snapshot();
+  else if (message?.type === "forget") forget();
 });
+
+// ---- the service worker (S-210): the runtime stays on the device
+//
+// This page starts the runner's worker, so this is the page that registers sw.js: a worker started by a controlled page is
+// controlled, and its fetches (Pyodide, the wheels, the fonts) pass through sw.js. The runner starts after sw.js is in
+// control, so even the first visit's downloads are kept. Without service workers (or if registering fails) nothing changes.
+
+const hasServiceWorker = "serviceWorker" in navigator;
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+async function startServiceWorker() {
+  if (!hasServiceWorker) return;
+  const control = async () => {
+    await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) {               // the first visit: sw.js takes control a moment later
+      const taken = new Promise((done) => navigator.serviceWorker.addEventListener("controllerchange", done, { once: true }));
+      await Promise.race([taken, sleep(2000)]);
+    }
+  };
+  try {
+    await Promise.race([control(), sleep(8000)]);            // a browser that never answers must not stop Python loading
+  } catch { /* the runner then loads as it always did */ }
+}
+
+// A new funground finished downloading in the background; it starts with the next worker.
+if (hasServiceWorker) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "update-ready") send({ type: "update-ready" });
+  });
+}
+
+// "Remove Play from this browser": sw.js steps aside, every funground cache goes, and it is unregistered. Sketches are not
+// stored here, so none is touched. The next visit downloads the runtime and registers again.
+async function forget() {
+  try {
+    const registration = hasServiceWorker ? await navigator.serviceWorker.getRegistration() : null;
+    if (registration?.active) {
+      const channel = new MessageChannel();
+      const answered = new Promise((done) => { channel.port1.onmessage = done; });
+      registration.active.postMessage({ type: "forget" }, [channel.port2]);
+      await Promise.race([answered, sleep(2000)]);
+    }
+    for (const name of await caches.keys()) if (name.startsWith("funground-")) await caches.delete(name);
+    await registration?.unregister();
+  } finally {
+    send({ type: "forgotten" });
+  }
+}
 
 // ---- start: load the runner from the website, then say so
 
 try {
+  await startServiceWorker();
   const { createRunner } = await import(new URL("runner.js", runnerBase).href);
   // A sketch that did not stop in time costs a new Python: the editor is told, so a slow next run is not a mystery.
   const onRestart = () => send({ type: "restarting" });

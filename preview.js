@@ -117,6 +117,20 @@ function snapshot() {
   }, "image/png");
 }
 
+// "Keep this" (S-226): the runner asks the sketch to run f.keep(note). The three files it writes arrive through onFile like any
+// saved file, and the answer follows them: ok with the names of those files, or not ok with a plain reason. The editor decides
+// what to do with them (Play keeps them in My files because the learner chose Keep this).
+async function keep(message) {
+  const note = typeof message.note === "string" ? message.note : "";
+  let answer;
+  try {
+    answer = runner ? await runner.keep(note) : { ok: false, reason: "The sketch is not running." };
+  } catch (error) {
+    answer = { ok: false, reason: String(error.message ?? error) };
+  }
+  send({ type: "kept", ...answer });
+}
+
 // ---- the guides (S-202): a grid every 50 pixels with the numbers on the top and left edges, and the mouse's x and y
 //
 // Both are in the sketch's own pixels, found the way the runner finds the mouse: the point's place in the canvas's box,
@@ -223,6 +237,7 @@ window.addEventListener("message", (event) => {
   else if (message?.type === "stop") stop();
   else if (message?.type === "guides") showGuides(message);
   else if (message?.type === "snapshot") snapshot();
+  else if (message?.type === "keep") keep(message);
   else if (message?.type === "forget") forget();
 });
 

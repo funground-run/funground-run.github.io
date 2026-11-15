@@ -131,7 +131,7 @@ async function keep(message) {
   send({ type: "kept", ...answer });
 }
 
-// "Check" (blockly-fun phase D, BF-Q-3): the runner's check() (S-273), as the editor asks for it: a file run as plain Python,
+// "Check" (blockly-fun phase D, BF-D-024): the runner's check() (S-273), as the editor asks for it: a file run as plain Python,
 // then its tests, in the same Python as the sketches. The editor uses it to read Python as blocks: blockly-fun's converter
 // goes in `files`, and what it prints is the blocks. Like any check it ends a sketch that is running. It waits for Python to
 // load, and the answer carries the request's `id`, so the editor can match it.

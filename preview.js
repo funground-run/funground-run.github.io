@@ -131,6 +131,25 @@ async function keep(message) {
   send({ type: "kept", ...answer });
 }
 
+// "Check" (blockly-fun phase D, BF-D-024): the runner's check() (S-273), as the editor asks for it: a file run as plain Python,
+// then its tests, in the same Python as the sketches. The editor uses it to read Python as blocks: blockly-fun's converter
+// goes in `files`, and what it prints is the blocks. Like any check it ends a sketch that is running. It waits for Python to
+// load, and the answer carries the request's `id`, so the editor can match it.
+let pythonReady;
+const loaded = new Promise((resolve) => { pythonReady = resolve; });
+
+async function check(message) {
+  const { id, source, filename = "main.py", stdin, files, tests = [] } = message;
+  let answer;
+  try {
+    await loaded;
+    answer = await runner.check(source, { filename, stdin, files, tests });
+  } catch (error) {
+    answer = { tests: [], output: "", error: String(error.message ?? error) };
+  }
+  send({ type: "checked", id, ...answer });
+}
+
 // ---- the guides (S-202): a grid every 50 pixels with the numbers on the top and left edges, and the mouse's x and y
 //
 // Both are in the sketch's own pixels, found the way the runner finds the mouse: the point's place in the canvas's box,
@@ -238,6 +257,7 @@ window.addEventListener("message", (event) => {
   else if (message?.type === "guides") showGuides(message);
   else if (message?.type === "snapshot") snapshot();
   else if (message?.type === "keep") keep(message);
+  else if (message?.type === "check" && typeof message.source === "string") check(message);
   else if (message?.type === "forget") forget();
 });
 
@@ -299,6 +319,7 @@ try {
   const onRestart = () => send({ type: "restarting" });
   runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile });
   send({ type: "ready", info: runner.info });
+  pythonReady();
   if (waiting) {
     const next = waiting;
     waiting = null;

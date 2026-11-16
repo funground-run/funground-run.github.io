@@ -317,7 +317,9 @@ try {
   const { createRunner } = await import(new URL("runner.js", runnerBase).href);
   // A sketch that did not stop in time costs a new Python: the editor is told, so a slow next run is not a mystery.
   const onRestart = () => send({ type: "restarting" });
-  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile });
+  // A model's download and start (S-307): the editor shows them in its status line.
+  const onModel = (info) => send({ type: "model", ...info });
+  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile, onModel });
   send({ type: "ready", info: runner.info });
   pythonReady();
   if (waiting) {

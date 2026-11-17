@@ -260,7 +260,21 @@ window.addEventListener("message", (event) => {
   else if (message?.type === "keep") keep(message);
   else if (message?.type === "check" && typeof message.source === "string") check(message);
   else if (message?.type === "forget") forget();
+  else if (message?.type === "camera-focus" && isFocus(message)) setFocus(message);
 });
+
+// ---- the camera's focus (D-155): the editor shows the control, the camera is here
+
+// {mode: "auto"} or {mode: "manual", distance: <a finite number>}: anything else is ignored, as the other messages are.
+function isFocus({ mode, distance }) {
+  return mode === "auto" || (mode === "manual" && Number.isFinite(distance));
+}
+
+async function setFocus({ mode, distance }) {
+  if (!runner) return;
+  const focus = await runner.cameraFocus(mode === "auto" ? { mode } : { mode, distance });
+  if (focus) send({ type: "camera", open: true, focus });
+}
 
 // ---- the service worker (S-241): Stop can interrupt a busy sketch
 //
@@ -338,7 +352,9 @@ try {
   const onRestart = () => send({ type: "restarting" });
   // A model's download and start (S-307): the editor shows them in its status line.
   const onModel = (info) => send({ type: "model", ...info });
-  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile, onModel });
+  // The camera opened or closed (D-155): the editor shows a focus control when the camera offers focus.
+  const onCamera = (info) => send({ type: "camera", ...info });
+  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile, onModel, onCamera });
   send({ type: "ready", info: runner.info });
   pythonReady();
   if (waiting) {

@@ -10,7 +10,7 @@ them from `main`; there is nothing to build.
 | `index.html` | A line saying what this site is, with a link to the editor |
 | `preview.html`, `preview.css` | The page the editor puts in its iframe: one canvas, and the guides' box over it (a grid and the mouse's x and y, S-202) |
 | `preview.js` | Loads the browser runner from the website, runs the sketches the editor sends, reports back, and registers `sw.js` |
-| `sw.js` | The service worker that keeps funground's runtime in the browser, so a repeat visit downloads nothing and Play runs offline (S-210) |
+| `sw.js` | The service worker that adds `Document-Isolation-Policy` to this page's own response, so a sketch busy in `while True:` stops at once and keeps its Python (S-241). It touches nothing else and caches nothing |
 
 `preview.js` loads the runner (`runner.js`, the worker, the funground wheel) from
 `https://funground-hq.github.io/play/runner/`, so the editor and the preview always run the same funground. Pyodide

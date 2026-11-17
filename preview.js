@@ -3,8 +3,9 @@
 // The editor (funground-hq.github.io/play/) shows this page in a sandboxed iframe and sends it sketches by
 // postMessage. This page is on its own origin, so a sketch from a shared link can reach nothing that belongs to
 // the website. It loads the browser runner from the website, so the editor and the preview run the same funground.
-// The messages are in README.md. Nothing is stored here: no cookies, no local storage. The service worker (sw.js, S-210)
-// keeps funground's runtime in the browser's cache so a repeat visit downloads nothing; "forget" removes it.
+// The messages are in README.md. Nothing is stored here: no cookies, no local storage (one flag in the tab's sessionStorage
+// stops the first-visit reload from ever repeating). The service worker (sw.js, S-241) makes this page cross-origin isolated;
+// "forget" unregisters it.
 
 // ---- where the editor and the runner are
 
@@ -261,14 +262,31 @@ window.addEventListener("message", (event) => {
   else if (message?.type === "forget") forget();
 });
 
-// ---- the service worker (S-210): the runtime stays on the device
+// ---- the service worker (S-241): Stop can interrupt a busy sketch
 //
-// This page starts the runner's worker, so this is the page that registers sw.js: a worker started by a controlled page is
-// controlled, and its fetches (Pyodide, the wheels, the fonts) pass through sw.js. The runner starts after sw.js is in
-// control, so even the first visit's downloads are kept. Without service workers (or if registering fails) nothing changes.
+// sw.js adds `Document-Isolation-Policy` to this page's own response, which makes the page cross-origin isolated, and then
+// the runner stops a sketch that is busy in `while True:` at once and keeps its Python. A header added by a service worker
+// counts from the next load, so on a first visit this page reloads once, as soon as sw.js is in control and before Python
+// loads. A browser without the header (Safari, Firefox) reloads that once and then runs as it did before. Without service
+// workers (or if registering fails) nothing changes.
 
 const hasServiceWorker = "serviceWorker" in navigator;
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// Reload at most once per tab: the flag lives in sessionStorage, which goes with the tab. Where storage is refused there is no
+// flag, so there is no reload either: a loop is never possible.
+const RELOADED = "funground-preview-reloaded";
+
+function reloadOnce() {
+  try {
+    if (sessionStorage.getItem(RELOADED)) return false;
+    sessionStorage.setItem(RELOADED, "1");
+    location.reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function startServiceWorker() {
   if (!hasServiceWorker) return;
@@ -278,6 +296,7 @@ async function startServiceWorker() {
     if (!navigator.serviceWorker.controller) {               // the first visit: sw.js takes control a moment later
       const taken = new Promise((done) => navigator.serviceWorker.addEventListener("controllerchange", done, { once: true }));
       await Promise.race([taken, sleep(2000)]);
+      if (navigator.serviceWorker.controller && !crossOriginIsolated && reloadOnce()) await new Promise(() => {});   // Python loads after the reload
     }
   };
   try {

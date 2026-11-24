@@ -316,7 +316,13 @@ try {
   await startServiceWorker();
   const { createRunner } = await import(new URL("runner.js", runnerBase).href);
   // A sketch that did not stop in time costs a new Python: the editor is told, so a slow next run is not a mystery.
-  const onRestart = () => send({ type: "restarting" });
+  // It says why (the sketch did not stop in time, or its Python failed) and, once the new Python has loaded, that the wait is
+  // over. A runner older than the restart's `ready` calls this with nothing: the editor then hears only "restarting".
+  const onRestart = (restart) => {
+    send({ type: "restarting", reason: restart?.reason ?? "stop" });
+    restart?.ready?.then(() => send({ type: "restarted" }),
+      (error) => send({ type: "error", text: `Python did not start again: ${error?.message ?? error}` }));
+  };
   // A model's download and start (S-307): the editor shows them in its status line.
   const onModel = (info) => send({ type: "model", ...info });
   runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile, onModel });

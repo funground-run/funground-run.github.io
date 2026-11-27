@@ -3,8 +3,9 @@
 // The editor (funground-hq.github.io/play/) shows this page in a sandboxed iframe and sends it sketches by
 // postMessage. This page is on its own origin, so a sketch from a shared link can reach nothing that belongs to
 // the website. It loads the browser runner from the website, so the editor and the preview run the same funground.
-// The messages are in README.md. Nothing is stored here: no cookies, no local storage. The service worker (sw.js, S-210)
-// keeps funground's runtime in the browser's cache so a repeat visit downloads nothing; "forget" removes it.
+// The messages are in README.md. Nothing is stored here: no cookies, no local storage (one flag in the tab's sessionStorage
+// stops the first-visit reload from ever repeating). The service worker (sw.js, S-241) makes this page cross-origin isolated;
+// "forget" unregisters it.
 
 // ---- where the editor and the runner are
 
@@ -259,16 +260,47 @@ window.addEventListener("message", (event) => {
   else if (message?.type === "keep") keep(message);
   else if (message?.type === "check" && typeof message.source === "string") check(message);
   else if (message?.type === "forget") forget();
+  else if (message?.type === "camera-focus" && isFocus(message)) setFocus(message);
 });
 
-// ---- the service worker (S-210): the runtime stays on the device
+// ---- the camera's focus (D-155): the editor shows the control, the camera is here
+
+// {mode: "auto"} or {mode: "manual", distance: <a finite number>}: anything else is ignored, as the other messages are.
+function isFocus({ mode, distance }) {
+  return mode === "auto" || (mode === "manual" && Number.isFinite(distance));
+}
+
+async function setFocus({ mode, distance }) {
+  if (!runner) return;
+  const focus = await runner.cameraFocus(mode === "auto" ? { mode } : { mode, distance });
+  if (focus) send({ type: "camera", open: true, focus });
+}
+
+// ---- the service worker (S-241): Stop can interrupt a busy sketch
 //
-// This page starts the runner's worker, so this is the page that registers sw.js: a worker started by a controlled page is
-// controlled, and its fetches (Pyodide, the wheels, the fonts) pass through sw.js. The runner starts after sw.js is in
-// control, so even the first visit's downloads are kept. Without service workers (or if registering fails) nothing changes.
+// sw.js adds `Document-Isolation-Policy` to this page's own response, which makes the page cross-origin isolated, and then
+// the runner stops a sketch that is busy in `while True:` at once and keeps its Python. A header added by a service worker
+// counts from the next load, so on a first visit this page reloads once, as soon as sw.js is in control and before Python
+// loads. A browser without the header (Safari, Firefox) reloads that once and then runs as it did before. Without service
+// workers (or if registering fails) nothing changes.
 
 const hasServiceWorker = "serviceWorker" in navigator;
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// Reload at most once per tab: the flag lives in sessionStorage, which goes with the tab. Where storage is refused there is no
+// flag, so there is no reload either: a loop is never possible.
+const RELOADED = "funground-preview-reloaded";
+
+function reloadOnce() {
+  try {
+    if (sessionStorage.getItem(RELOADED)) return false;
+    sessionStorage.setItem(RELOADED, "1");
+    location.reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function startServiceWorker() {
   if (!hasServiceWorker) return;
@@ -278,6 +310,7 @@ async function startServiceWorker() {
     if (!navigator.serviceWorker.controller) {               // the first visit: sw.js takes control a moment later
       const taken = new Promise((done) => navigator.serviceWorker.addEventListener("controllerchange", done, { once: true }));
       await Promise.race([taken, sleep(2000)]);
+      if (navigator.serviceWorker.controller && !crossOriginIsolated && reloadOnce()) await new Promise(() => {});   // Python loads after the reload
     }
   };
   try {
@@ -316,10 +349,18 @@ try {
   await startServiceWorker();
   const { createRunner } = await import(new URL("runner.js", runnerBase).href);
   // A sketch that did not stop in time costs a new Python: the editor is told, so a slow next run is not a mystery.
-  const onRestart = () => send({ type: "restarting" });
+  // It says why (the sketch did not stop in time, or its Python failed) and, once the new Python has loaded, that the wait is
+  // over. A runner older than the restart's `ready` calls this with nothing: the editor then hears only "restarting".
+  const onRestart = (restart) => {
+    send({ type: "restarting", reason: restart?.reason ?? "stop" });
+    restart?.ready?.then(() => send({ type: "restarted" }),
+      (error) => send({ type: "error", text: `Python did not start again: ${error?.message ?? error}` }));
+  };
   // A model's download and start (S-307): the editor shows them in its status line.
   const onModel = (info) => send({ type: "model", ...info });
-  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile, onModel });
+  // The camera opened or closed (D-155): the editor shows a focus control when the camera offers focus.
+  const onCamera = (info) => send({ type: "camera", ...info });
+  runner = await createRunner({ canvas, baseUrl: runnerBase, reuse: true, output, onFinish, onRestart, onFile, onModel, onCamera });
   send({ type: "ready", info: runner.info });
   pythonReady();
   if (waiting) {
